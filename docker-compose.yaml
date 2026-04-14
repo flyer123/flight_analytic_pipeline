@@ -91,6 +91,35 @@ services:
     volumes:
       - minio-data:/data
 
+  
+  # -------------------------
+  # SPARK MASTER
+  # -------------------------
+  spark-master:
+    image: apache/spark:3.5.0
+    container_name: spark-master
+    restart: always
+    environment:
+      - SPARK_MODE=master
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+    volumes:
+      - ./spark/jobs:/opt/spark/jobs
+
+  # -------------------------
+  # SPARK WORKER
+  # -------------------------
+  spark-worker:
+    image: apache/spark:3.5.0
+    container_name: spark-worker
+    restart: always
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+    depends_on:
+      - spark-master
+
 volumes:
   postgres-db-volume:
   minio-data:
