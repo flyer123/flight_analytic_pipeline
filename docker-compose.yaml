@@ -15,6 +15,7 @@ x-airflow-common: &airflow-common
     - ./airflow/logs:/opt/airflow/logs
     - ./airflow/plugins:/opt/airflow/plugins
     - ./ingestion:/opt/airflow/ingestion
+    - ./spark/jobs:/opt/airflow/spark_jobs
   depends_on:
     - postgres
 
@@ -96,9 +97,8 @@ services:
   # SPARK MASTER
   # -------------------------
   spark-master:
-    image: apache/spark:3.5.0
+    build: ./spark
     container_name: spark-master
-    restart: always
     environment:
       - SPARK_MODE=master
     ports:
@@ -111,9 +111,8 @@ services:
   # SPARK WORKER
   # -------------------------
   spark-worker:
-    image: apache/spark:3.5.0
+    build: ./spark
     container_name: spark-worker
-    restart: always
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark-master:7077
