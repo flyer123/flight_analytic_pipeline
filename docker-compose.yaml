@@ -1,25 +1,42 @@
 version: "3.9"
 
-
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.9.1
+  build: ./airflow   # 🔴 your custom Dockerfile (with Spark)
+  networks:
+  - airflow-spark-network
   environment:
     &airflow-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+    AIRFLOW__CORE__STORE_SERIALIZED_DAGS: "true"
+
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__WEBSERVER__SECRET_KEY: 'secret'
+
+    # Optional but useful
+    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     - ./airflow/logs:/opt/airflow/logs
     - ./airflow/plugins:/opt/airflow/plugins
     - ./ingestion:/opt/airflow/ingestion
     - ./spark/jobs:/opt/airflow/spark_jobs
+
   depends_on:
-    - postgres
+    postgres:
+      condition: service_healthy
+
+  user: "50000:50000"
 
 services:
+
+  # -----------------------
+  # Jupyter
+  # -----------------------
   jupyter:
     container_name: jupyter
     build: ./jupyter_notebook
@@ -34,12 +51,18 @@ services:
   # -----------------------
   postgres:
     image: postgres:13
+    networks:
+      - airflow-spark-network
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      retries: 5
 
   # -----------------------
   # Airflow Init
@@ -49,7 +72,7 @@ services:
     entrypoint: /bin/bash
     command: >
       -c "
-      airflow db init &&
+      airflow db migrate &&
       airflow users create \
         --username admin \
         --password admin \
@@ -68,6 +91,9 @@ services:
     ports:
       - "8080:8080"
     restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
 
   # -----------------------
   # Airflow Scheduler
@@ -76,6 +102,9 @@ services:
     <<: *airflow-common
     command: scheduler
     restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
 
   # -----------------------
   # MinIO (S3)
@@ -83,6 +112,8 @@ services:
   minio:
     image: minio/minio
     command: server /data --console-address ":9001"
+    networks:
+      - airflow-spark-network
     environment:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: minio123
@@ -92,15 +123,22 @@ services:
     volumes:
       - minio-data:/data
 
-  
   # -------------------------
   # SPARK MASTER
   # -------------------------
   spark-master:
     build: ./spark
-    container_name: spark-master
+    networks:
+      - airflow-spark-network
+    command: >
+      bash -c "
+      /opt/spark/sbin/start-master.sh &&
+      tail -f /dev/null
+      "
     environment:
       - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
     ports:
       - "7077:7077"
       - "8081:8080"
@@ -112,13 +150,22 @@ services:
   # -------------------------
   spark-worker:
     build: ./spark
-    container_name: spark-worker
+    networks:
+      - airflow-spark-network
     environment:
       - SPARK_MODE=worker
       - SPARK_MASTER_URL=spark://spark-master:7077
+    command: >
+      bash -c "
+      /opt/spark/sbin/start-worker.sh spark://spark-master:7077 &&
+      tail -f /dev/null
+      "
     depends_on:
       - spark-master
 
 volumes:
   postgres-db-volume:
   minio-data:
+
+networks:
+  airflow-spark-network:

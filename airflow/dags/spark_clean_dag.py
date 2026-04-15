@@ -20,9 +20,5 @@ with DAG(
 
     spark_job = BashOperator(
         task_id="run_spark_job",
-        bash_command="""
-        docker exec spark-master spark-submit \
-        --master spark://spark-master:7077 \
-        /opt/spark/jobs/clean_flights.py
-        """,
+        bash_command="spark-submit --master spark://spark-master:7077 /opt/airflow/spark_jobs/clean_flights.py",
     )
