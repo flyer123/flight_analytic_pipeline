@@ -72,7 +72,6 @@
     registration                      str
     model                             str
     typecode                          str
-    icao_aircraft_class               str
 <h4>Airports</h4>
 
     id                     int64

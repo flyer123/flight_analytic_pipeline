@@ -1,182 +1,199 @@
 from airflow import DAG
 from airflow.decorators import task
+from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
+from airflow.providers.amazon.aws.hooks.s3 import S3Hook
+
 from datetime import datetime
-import boto3
+import re
 import os
 
-from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
-
 BUCKET = "flight-data"
+PREFIX = "silver/flights/"
+LOCAL_TMP_DIR = "/tmp/minio_files"
+
+SNOWFLAKE_CONN_ID = "snowflake_default"
+S3_CONN_ID = "minio_s3"
+
+# ✅ DATE RANGE (controlled in DAG)
+DATE_START = datetime(2024, 1, 1)
+DATE_END   = datetime(2024, 1, 2)
+
+default_args = {
+    "owner": "airflow",
+}
 
 with DAG(
-    dag_id="silver_minio_to_snowflake",
+    dag_id="minio_to_snowflake_full_load",
     start_date=datetime(2024, 1, 1),
-    schedule_interval=None,
+    schedule=None,
     catchup=False,
+    default_args=default_args,
+    tags=["minio", "snowflake", "silver"],
 ) as dag:
 
-    #--------------------------
-    # Get current role
-    #--------------------------
     @task
-    def debug_context():
-        hook = SnowflakeHook()
-        print(hook.get_first("""
-            SELECT CURRENT_ROLE(), CURRENT_WAREHOUSE(), CURRENT_USER();
-        """))
+    def init_snowflake():
+        hook = SnowflakeHook(snowflake_conn_id=SNOWFLAKE_CONN_ID)
 
-    # -------------------------
-    # Setup Snowflake objects
-    # -------------------------
+        sql = """
+        CREATE FILE FORMAT IF NOT EXISTS parquet_format
+        TYPE = PARQUET;
+
+        CREATE TABLE IF NOT EXISTS flights_stage (
+            raw VARIANT,
+            year INT,
+            month INT,
+            day INT,
+            source_file STRING,
+            load_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+        );
+
+        CREATE TABLE IF NOT EXISTS flights (
+            flight_id STRING,
+            departure TIMESTAMP,
+            arrival TIMESTAMP,
+            icao24 STRING,
+            icao_operator STRING,
+            ADEP STRING,
+            ADES STRING,
+            year INT,
+            month INT,
+            day INT,
+            load_ts TIMESTAMP
+        );
+        """
+
+        hook.run(sql)
+
     @task
-    def setup_snowflake():
-        hook = SnowflakeHook()
+    def list_files():
+        s3 = S3Hook(aws_conn_id=S3_CONN_ID)
 
-        hook.run("USE ROLE ACCOUNTADMIN;")
-        hook.run("USE WAREHOUSE FLIGHT_WH;")
-        hook.run("USE DATABASE FLIGHT_ANALYTICS;")
-        hook.run("USE SCHEMA SILVER;")
+        keys = s3.list_keys(bucket_name=BUCKET, prefix=PREFIX)
+        if not keys:
+            return []
 
-        # target table
-        hook.run("""
-            CREATE TABLE IF NOT EXISTS flights (
-                first_seen TIMESTAMP,
-                icao24 VARCHAR,
-                ADEP VARCHAR,
-                ADES VARCHAR,
-                year INT,
-                month INT,
-                day INT
-            );
-        """)
+        pattern = re.compile(r"year=(\d+)/month=(\d+)/day=(\d+)")
 
-        # staging table (IMPORTANT)
-        hook.run("""
-            CREATE TABLE IF NOT EXISTS flights_stage (
-                first_seen TIMESTAMP,
-                icao24 VARCHAR,
-                ADEP VARCHAR,
-                ADES VARCHAR,
-                year INT,
-                month INT,
-                day INT
-            );
-        """)
+        filtered = []
 
-        # file stage
-        hook.run("""
-            CREATE STAGE IF NOT EXISTS flights_stage_files;
-        """)
+        for k in keys:
+            # skip folders / system files
+            if k.endswith("/") or k.split("/")[-1].startswith("_"):
+                continue
 
-    # -------------------------
-    # Get files from MinIO
-    # -------------------------
+            match = pattern.search(k)
+            if not match:
+                continue
+
+            year, month, day = map(int, match.groups())
+            file_date = datetime(year, month, day)
+
+            # ✅ date filter
+            if DATE_START <= file_date <= DATE_END:
+                filtered.append(k)
+
+        return filtered
+
+    def get_unique_path(base_path):
+        """Rename file if exists: file → file_1 → file_2"""
+        if not os.path.exists(base_path):
+            return base_path
+
+        name, ext = os.path.splitext(base_path)
+        counter = 1
+
+        while True:
+            new_path = f"{name}_{counter}{ext}"
+            if not os.path.exists(new_path):
+                return new_path
+            counter += 1
+
     @task
-    def get_partition_files(ds=None):
-        year, month, day = ds.split("-")
-        prefix = f"silver/flights/"
+    def download_files(keys: list):
+        s3 = S3Hook(aws_conn_id=S3_CONN_ID)
 
-        s3 = boto3.client(
-            "s3",
-            endpoint_url="http://minio:9000",
-            aws_access_key_id="minio",
-            aws_secret_access_key="minio123",
-        )
+        os.makedirs(LOCAL_TMP_DIR, exist_ok=True)
 
-        files = []
-        response = s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+        local_files = []
 
-        for obj in response.get("Contents", []):
-            key = obj["Key"]
+        for key in keys:
+            obj = s3.get_key(key, bucket_name=BUCKET)
 
-            if key.endswith(".parquet"):
-                filename = os.path.basename(key)
-                local_path = f"/tmp/{filename}"
+            safe_name = key.replace("/", "_")
+            base_path = os.path.join(LOCAL_TMP_DIR, safe_name)
 
-                s3.download_file(BUCKET, key, local_path)
-                files.append(local_path)
+            # ✅ collision-safe path
+            local_path = get_unique_path(base_path)
 
-        if not files:
-            raise ValueError(f"No files found for partition {ds}")
+            with open(local_path, "wb") as f:
+                f.write(obj.get()["Body"].read())
 
-        return files
+            local_files.append((key, local_path))
 
-    # -------------------------
-    # Load into staging table
-    # -------------------------
+        return local_files
+
     @task
-    def load_to_stage(files):
-        hook = SnowflakeHook()
+    def upload_and_copy(local_files: list):
+        hook = SnowflakeHook(snowflake_conn_id=SNOWFLAKE_CONN_ID)
 
-        hook.run("USE ROLE ACCOUNTADMIN;")
-        hook.run("USE WAREHOUSE FLIGHT_WH;")
-        hook.run("USE DATABASE FLIGHT_ANALYTICS;")
-        hook.run("USE SCHEMA SILVER;")
+        pattern = re.compile(r"year=(\d+)/month=(\d+)/day=(\d+)")
 
-        # clean stage storage
-        hook.run("REMOVE @flights_stage_files;")
+        for key, local_path in local_files:
+            match = pattern.search(key)
+            if not match:
+                continue
 
-        # clean staging table (IMPORTANT for idempotency)
-        hook.run("TRUNCATE TABLE flights_stage;")
+            year, month, day = match.groups()
 
-        # upload files
-        for f in files:
-            hook.run(f"PUT file://{f} @flights_stage_files AUTO_COMPRESS=TRUE;")
+            put_sql = f"""
+            PUT file://{local_path} @%flights_stage AUTO_COMPRESS=TRUE;
+            """
+            hook.run(put_sql)
 
-        # load into staging TABLE
-        hook.run("""
-            COPY INTO flights_stage
-            FROM @flights_stage_files
-            FILE_FORMAT=(TYPE=PARQUET)
-            MATCH_BY_COLUMN_NAME=CASE_INSENSITIVE;
-        """)
+            copy_sql = f"""
+            COPY INTO flights_stage (raw, year, month, day, source_file)
+            FROM (
+                SELECT
+                    $1,
+                    {year},
+                    {month},
+                    {day},
+                    '{key}'
+                FROM @%flights_stage
+            )
+            FILE_FORMAT = (FORMAT_NAME = parquet_format)
+            PATTERN = '.*{os.path.basename(local_path)}.*';
+            """
+            hook.run(copy_sql)
 
-    # -------------------------
-    # Merge into target table
-    # -------------------------
     @task
-    def merge(ds=None):
-        year, month, day = ds.split("-")
-        hook = SnowflakeHook()
+    def insert_into_final():
+        hook = SnowflakeHook(snowflake_conn_id=SNOWFLAKE_CONN_ID)
 
-        hook.run("USE ROLE ACCOUNTADMIN;")
-        hook.run("USE WAREHOUSE FLIGHT_WH;")
-        hook.run("USE DATABASE FLIGHT_ANALYTICS;")
-        hook.run("USE SCHEMA SILVER;")
+        sql = """
+        INSERT INTO flights
+        SELECT
+            raw:flt_id::STRING,
+            raw:first_seen_ts::TIMESTAMP,
+            raw:last_seen_ts::TIMESTAMP,
+            raw:icao24::STRING,
+            raw:icao_operator::STRING,
+            raw:ADEP::STRING,
+            raw:ADES::STRING,
+            year,
+            month,
+            day,
+            load_ts
+        FROM flights_stage;
+        """
 
-        hook.run(f"""
-            MERGE INTO flights t
-            USING (
-                SELECT *
-                FROM flights_stage
-                WHERE year = {year}
-                  AND month = {month}
-                  AND day = {day}
-            ) s
-            ON t.icao24 = s.icao24
-               AND t.first_seen = s.first_seen
-            WHEN NOT MATCHED THEN
-                INSERT (
-                    first_seen, icao24, ADEP, ADES, year, month, day
-                )
-                VALUES (
-                    s.first_seen,
-                    s.icao24,
-                    s.ADEP,
-                    s.ADES,
-                    s.year,
-                    s.month,
-                    s.day
-                );
-        """)
+        hook.run(sql)
 
-    # -------------------------
-    # DAG dependencies
-    # -------------------------
-    debug = debug_context()
-    setup = setup_snowflake()
-    files = get_partition_files()
-    load = load_to_stage(files)
-    merge_task = merge()
+    init = init_snowflake()
+    keys = list_files()
+    files = download_files(keys)
+    load = upload_and_copy(files)
+    insert = insert_into_final()
 
-    debug >> setup >> files >> load >> merge_task
+    init >> keys >> files >> load >> insert

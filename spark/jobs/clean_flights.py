@@ -28,8 +28,12 @@ logging.info(f"Loaded {df.count()} rows")
 # -------------------------
 df_clean = df \
     .withColumn("first_seen_ts", to_timestamp("first_seen")) \
+    .withColumn("last_seen_ts", to_timestamp("last_seen")) \
     .filter(col("first_seen_ts").isNotNull()) \
+    .filter(col("last_seen_ts").isNotNull()) \
     .withColumn("icao24", col("icao24").cast("string")) \
+    .withColumn("flt_id", col("flt_id").cast("string")) \
+    .withColumn("icao_operator", col("icao_operator").cast("string")) \
     .withColumn("ADEP", upper(col("adep"))) \
     .withColumn("ADES", upper(col("ades")))
 
