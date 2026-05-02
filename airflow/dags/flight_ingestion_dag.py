@@ -127,7 +127,7 @@ with DAG(
         )
 
         bucket = "flight-data"
-        prefix = "bronze/flights"
+        prefix = "raw/flights"
 
         written = 0
 

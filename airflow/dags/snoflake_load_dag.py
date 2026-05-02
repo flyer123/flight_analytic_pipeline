@@ -8,7 +8,7 @@ import re
 import os
 
 BUCKET = "flight-data"
-PREFIX = "silver/flights/"
+PREFIX = "bronze/flights/"
 LOCAL_TMP_DIR = "/tmp/minio_files"
 
 SNOWFLAKE_CONN_ID = "snowflake_default"
@@ -28,14 +28,15 @@ with DAG(
     schedule=None,
     catchup=False,
     default_args=default_args,
-    tags=["minio", "snowflake", "silver"],
+    tags=["minio", "snowflake", "bronze"],
 ) as dag:
 
     @task
     def init_snowflake():
         hook = SnowflakeHook(snowflake_conn_id=SNOWFLAKE_CONN_ID)
-
+        
         sql = """
+        USE SCHEMA BRONZE;
         CREATE FILE FORMAT IF NOT EXISTS parquet_format
         TYPE = PARQUET;
 

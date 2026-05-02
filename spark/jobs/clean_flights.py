@@ -17,9 +17,9 @@ spark = SparkSession.builder \
     .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
     .getOrCreate()
 
-logging.info("Reading bronze data...")
+logging.info("Reading raw data...")
 
-df = spark.read.parquet("s3a://flight-data/bronze/flights/")
+df = spark.read.parquet("s3a://flight-data/raw/flights/")
 
 logging.info(f"Loaded {df.count()} rows")
 
@@ -45,11 +45,11 @@ df_clean = df_clean \
     .withColumn("month", month("first_seen_ts")) \
     .withColumn("day", dayofmonth("first_seen_ts"))
 
-logging.info("Writing silver layer...")
+logging.info("Writing bronze layer...")
 
 df_clean.write \
     .mode("overwrite") \
     .partitionBy("year", "month", "day") \
-    .parquet("s3a://flight-data/silver/flights/")
+    .parquet("s3a://flight-data/bronze/flights/")
 
 logging.info("Spark job completed successfully")
