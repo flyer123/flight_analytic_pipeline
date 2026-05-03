@@ -177,6 +177,26 @@ services:
     networks:
       - airflow-spark-network
 
+    # -----------------------
+  # DBT (Transformation Layer)
+  # -----------------------
+  dbt:
+    image: ghcr.io/dbt-labs/dbt-snowflake:latest
+    container_name: dbt
+    networks:
+      - airflow-spark-network
+
+    volumes:
+      - ./dbt:/usr/app/dbt
+      - ./dbt/profiles:/root/.dbt   # profiles.yml location
+
+    working_dir: /usr/app/dbt
+
+    entrypoint: ["sleep", "infinity"]  # keep container running
+
+    environment:
+      DBT_PROFILES_DIR: /root/.dbt
+
 volumes:
   postgres-db-volume:
   minio-data:

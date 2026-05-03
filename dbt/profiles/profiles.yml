@@ -1,0 +1,14 @@
+flight_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: ############### # e.g. xy12345.eu-central-1
+      user: ###############
+      password: ################
+      role: ACCOUNTADMIN                # e.g. ACCOUNTADMIN or custom role
+      database: FLIGHT_ANALYTICS
+      warehouse: FLIGHT_WH
+      schema: silver                 # target schema for dbt models
+      threads: 4
+      client_session_keep_alive: false

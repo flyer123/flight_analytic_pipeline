@@ -1,0 +1,32 @@
+version: 2
+
+models:
+  - name: stg_flights
+    description: "Standardized staging model for flights"
+
+    columns:
+      - name: flight_id
+        tests:
+          - not_null:
+              severity: warn   # IMPORTANT: allow nulls at staging
+
+      - name: departure
+        tests:
+          - not_null:
+              severity: warn
+
+  - name: flights_clean
+    description: "Deduplicated and validated flights dataset"
+
+    columns:
+      - name: flight_id
+        tests:
+          - not_null
+
+      - name: departure
+        tests:
+          - not_null
+
+    tests:
+      - unique:
+          column_name: "(flight_id || '-' || departure)"

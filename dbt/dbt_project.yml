@@ -1,0 +1,17 @@
+name: 'flight_dbt'
+version: '1.0'
+config-version: 2
+
+profile: 'flight_dbt'
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+models:
+  flight_dbt:
+    staging:
+      materialized: view
+    silver:
+      materialized: table

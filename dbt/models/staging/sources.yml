@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: bronze
+    database: FLIGHT_ANALYTICS   # same DB used in Snowflake
+    schema: BRONZE
+
+    tables:
+      - name: flights
+        description: "Raw ingested flights data from MinIO via Airflow"
+
+        loaded_at_field: load_ts
+
+        #freshness:
+          #warn_after: {count: 1, period: day}
+          #error_after: {count: 2, period: day}
+
+        columns:
+          - name: flight_id
+            description: "Flight identifier (can be null in raw)"
+
+          - name: departure
+            description: "Departure timestamp"
+
+          - name: load_ts
+            description: "Ingestion timestamp"
