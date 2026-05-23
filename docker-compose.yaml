@@ -48,6 +48,9 @@ services:
     volumes:
       - ./notebooks:/home/jovyan/work
       - ./data:/home/jovyan/data
+    networks:
+      airflow-spark-network:
+        ipv4_address: 172.19.0.5
 
   # -----------------------
   # Postgres (Airflow DB)
@@ -55,13 +58,15 @@ services:
   postgres:
     image: postgres:13
     networks:
-      - airflow-spark-network
+      airflow-spark-network:
+        ipv4_address: 172.19.0.3
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
       POSTGRES_DB: airflow
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U airflow"]
       interval: 5s
@@ -72,6 +77,9 @@ services:
   # -----------------------
   airflow-init:
     <<: *airflow-common
+    networks:
+      airflow-spark-network:
+        ipv4_address: 172.19.0.6
     entrypoint: /bin/bash
     command: >
       -c "
@@ -90,6 +98,9 @@ services:
   # -----------------------
   airflow-webserver:
     <<: *airflow-common
+    networks:
+      airflow-spark-network:
+        ipv4_address: 172.19.0.7
     command: webserver
     ports:
       - "8080:8080"
@@ -103,6 +114,9 @@ services:
   # -----------------------
   airflow-scheduler:
     <<: *airflow-common
+    networks:
+      airflow-spark-network:
+        ipv4_address: 172.19.0.8
     command: scheduler
     restart: always
     depends_on:
@@ -136,7 +150,7 @@ services:
     container_name: spark-master
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master", "--host", "spark-master", "--port", "7077", "--webui-port", "8088"]
     environment:
-      SPARK_MASTER_HOST: 172.19.0.2 
+      SPARK_MASTER_HOST: 172.19.0.2
       SPARK_MASTER_PORT: 7077
       SPARK_MASTER_WEBUI_PORT: 8088
     ports:
@@ -175,17 +189,18 @@ services:
       - ./spark/jobs:/opt/spark-jobs
       - ./spark/logs:/opt/spark/logs
     networks:
-      - airflow-spark-network
+      airflow-spark-network:
+        ipv4_address: 172.19.0.9
 
-    # -----------------------
+  # -----------------------
   # DBT (Transformation Layer)
   # -----------------------
   dbt:
     image: ghcr.io/dbt-labs/dbt-snowflake:latest
     container_name: dbt
     networks:
-      - airflow-spark-network
-
+      airflow-spark-network:
+        ipv4_address: 172.19.0.10
     volumes:
       - ./dbt:/usr/app/dbt
       - ./dbt/profiles:/root/.dbt   # profiles.yml location
@@ -197,9 +212,108 @@ services:
     environment:
       DBT_PROFILES_DIR: /root/.dbt
 
+  # -----------------------
+  # Redis (Superset cache/celery)
+  # -----------------------
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: always
+    networks:
+      airflow-spark-network:
+        ipv4_address: 172.19.0.12
+
+  # -----------------------
+  # Superset Init
+  # -----------------------
+  superset-init:
+    image: apache/superset:latest
+    container_name: superset-init
+
+    networks:
+      airflow-spark-network:
+        ipv4_address: 172.19.0.13
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+    environment:
+      #SUPERSET_SECRET_KEY: "superset_secret_key"
+
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+
+      # Superset metadata DB
+      DATABASE_DB: superset
+      DATABASE_HOST: postgres
+      DATABASE_PASSWORD: airflow
+      DATABASE_USER: airflow
+      DATABASE_PORT: 5432
+      SUPERSET_DATABASE_URI: postgresql+psycopg2://airflow:airflow@postgres:5432/superset
+
+    volumes:
+      - ./superset:/app/pythonpath
+      - superset_home:/app/superset_home
+
+    command: >
+       /bin/bash -c "
+       superset db upgrade &&
+       superset fab create-admin \
+           --username admin \
+           --firstname admin \
+           --lastname admin \
+           --email admin@example.com \
+           --password admin &&
+       superset init
+       "
+
+  # -----------------------
+  # Superset Webserver
+  # -----------------------
+  superset:
+    build: ./superset
+    container_name: superset
+
+    restart: always
+
+    ports:
+      - "8081:8088"
+
+    networks:
+      airflow-spark-network:
+        ipv4_address: 172.19.0.14
+
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
+
+    environment:
+      #SUPERSET_SECRET_KEY: "superset_secret_key"
+
+      SUPERSET_CONFIG_PATH: /app/pythonpath/superset_config.py
+
+      DATABASE_DB: superset
+      DATABASE_HOST: postgres
+      DATABASE_PASSWORD: airflow
+      DATABASE_USER: airflow
+      DATABASE_PORT: 5432
+      SUPERSET_DATABASE_URI: postgresql+psycopg2://airflow:airflow@postgres:5432/superset
+
+    volumes:
+      - ./superset:/app/pythonpath
+      - superset_home:/app/superset_home
+
+    command: >
+       /bin/bash -c "
+       superset run -h 0.0.0.0 -p 8088 --with-threads
+       "
+
 volumes:
   postgres-db-volume:
   minio-data:
+  superset_home:
 
 networks:
   airflow-spark-network:

@@ -25,7 +25,7 @@ deduplicated AS (
     SELECT
         *,
         ROW_NUMBER() OVER (
-            PARTITION BY flight_id, departure
+            PARTITION BY departure, flight_id, icao24, arrival
             ORDER BY load_ts DESC
         ) AS rn
     FROM filtered

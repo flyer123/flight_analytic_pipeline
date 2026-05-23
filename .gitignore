@@ -226,3 +226,14 @@ data/
 # airflow
 airflow/logs
 airflow/dags/__pycache__
+
+# dbt
+dbt/logs
+dbt/packages
+dbt/target
+
+# snowflake
+snowflake/logs
+
+#spark
+spark/logs

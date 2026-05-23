@@ -7,9 +7,9 @@ terraform {
 }
 
 locals {
-  organization_name = "kghyamb"
-  account_name      = "sxb47565"
-  private_key_path  = "~/.ssh/snowflake_tf_snow_key.p8"
+  organization_name = "eonunrf"
+  account_name      = "jwb53037"
+  private_key_path  = "/home/jurii/.ssh/snowflake_tf_snow_key.p8"
 }
 
 provider "snowflake" {
@@ -36,10 +36,10 @@ resource "snowflake_database" "db" {
 
 
 # create schema bronze
-# resource "snowflake_schema" "bronze" {
-#   database = snowflake_database.db.name
-#  name     = "BRONZE"
-#}
+ resource "snowflake_schema" "bronze" {
+   database = snowflake_database.db.name
+  name     = "BRONZE"
+}
 
 # create schema silver
 resource "snowflake_schema" "silver" {

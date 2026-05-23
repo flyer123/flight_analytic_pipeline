@@ -13,5 +13,9 @@ models:
   flight_dbt:
     staging:
       materialized: view
+      +schema: bronze
     silver:
       materialized: table
+      +schema: silver
+    gold:
+      +schema: gold

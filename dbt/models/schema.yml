@@ -20,13 +20,47 @@ models:
 
     columns:
       - name: flight_id
+        description: "Business flight identifier"
+
         tests:
           - not_null
 
       - name: departure
+        description: "Flight departure timestamp"
+
         tests:
           - not_null
 
+      - name: arrival
+        description: "Flight arrival timestamp"
+
+        tests:
+          - not_null
+      
+      - name: icao24
+        description: "Aircraft ICAO24 identifier"
+
+        tests:
+          - not_null
+      
+      
+
     tests:
       - unique:
-          column_name: "(flight_id || '-' || departure)"
+          column_name: "(flight_id || '-' || departure || '-' || icao24 || arrival)"
+
+      - dbt_utils.expression_is_true:
+          expression: "arrival >= departure"
+      
+      - dbt_utils.expression_is_true:
+          expression: "DATEDIFF(hour, departure, arrival) BETWEEN 0 AND 48"
+
+      - dbt_utils.expression_is_true:
+          expression: "departure_airport IS NULL OR departure_airport RLIKE '^[A-Z]{4}$'"
+          config:
+            severity: warn
+
+      - dbt_utils.expression_is_true:
+          expression: "arrival_airport IS NULL OR arrival_airport RLIKE '^[A-Z]{4}$'"
+          config:
+            severity: warn

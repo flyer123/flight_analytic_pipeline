@@ -1,47 +1,31 @@
 <h3>**Bronze (raw)**</h3>
 
 **Keep as-is**
-<h4>Flight</h4>
+<h4>Flight (partitioned OPDI output)</h4>
 
     id                                str
     icao24                            str
     flt_id                            str
-    dof                               str
+    callsign                          str (optional)
+
+    dof                               datetime64[ns]
+    first_seen                        datetime64[ns]
+    last_seen                         datetime64[ns]
+
     adep                              str
     ades                              str
-    adep_p                            str
-    ades_p                            str
+    estdepartureairport              str (optional)
+    estarrivalairport                str (optional)
+
     registration                      str
     model                             str
     typecode                          str
     icao_aircraft_class               str
     icao_operator                     str
-    first_seen                        str
-    last_seen                         str
+
     version                           str
-    unix_time                         str
+    unix_time                         int64 / str (source-dependent)
 
-<h4>Airports</h4>
-
-    id                       str 
-    ident                    str
-    type                     str
-    name                     str
-    latitude_deg             str
-    longitude_deg            str
-    elevation_ft             str
-    continent                str
-    iso_country              str
-    iso_region               str
-    municipality             str
-    scheduled_service        str
-    icao_code                str
-    iata_code                str
-    gps_code                 str
-    local_code               str
-    home_link                str
-    wikipedia_link           str
-    keywords                 str
 
 <h3>**Silver (cleaned)**</h3>
 
@@ -49,90 +33,82 @@
 
 <h4>Flight</h4>
 
-    id                                int
+    id                                str
     icao24                            str
     flt_id                            str
-    dof                    datetime64[us]
-    adep                              str
-    ades                              str
-    adep_p                            str
-    ades_p                            str
-    registration                      str
-    model                             str
-    typecode                          str
-    icao_aircraft_class               str
-    icao_operator                     str
-    first_seen             datetime64[us]
-    last_seen              datetime64[us]
-    version                           str
-    unix_time                        int64
-    flight_duration_sec(calculated)  int64
-    flight_duration_min(calculated)  int64
-    flight_duration_hour(calculated) int64     
-    registration                      str
-    model                             str
-    typecode                          str
-<h4>Airports</h4>
 
-    id                     int64
-    ident                    str
-    type                     str
-    name                     str
-    latitude_deg         float64
-    longitude_deg        float64
-    elevation_ft         float64
-    continent                str
-    iso_country              str
-    iso_region               str
-    municipality             str
-    scheduled_service        str
-    icao_code                str
-    iata_code                str
-    gps_code                 str
-    local_code               str
-    home_link                str
-    wikipedia_link           str
-    keywords                 str
+    first_seen_ts                    datetime64[ns]
+    last_seen_ts                     datetime64[ns]
+
+    adep                              str (normalized uppercase)
+    ades                              str (normalized uppercase)
+
+    ADEP                              str (derived uppercase alias)
+    ADES                              str (derived uppercase alias)
+
+    icao_operator                     str
+    registration                      str (if present in source)
+    model                             str (if present in source)
+    typecode                          str (if present in source)
+
 
 <h3>**Gold (analytics)**</h3>
 
-**Star schema:**
 
-<h4>fact_flights</h4>
+<h4>Yearly Traffic (gold_yearly_flight_traffic)</h4>
 
-    flight_id STRING,
-    departure_airport_id ID,
-    arrival_airport_id ID,
-    airline_id INT,
-    aircraft_id INT,
-    duration_minutes INT,
-    date_id INT
+    year                              int
 
-<h4>dim_airport</h4>
+    total_flights                     int
 
-    airport_id INT,
-    airport_code STRING,
-    city STRING,
-    country STRING
+<h4>Monthly Traffic (gold_monthly_traffic)</h4>
 
-<h4>dim_dates</h4>
+    year                              int
 
-    date_id int,
-    date date
+    month                             int (1–12)
 
-<h4>dim_aircraft</h4>
+    month_start                       date (DATE_TRUNC('month', departure))
 
-    aircraft_id INT,
-    registration STR,
-    model STR,
-    typecode STR,
-    icao_aircraft_class STR
+    total_flights                     int
 
-<h4>dim_airlines</h4>
-    
-    airline_id INT,
-    ariline-code STR
+    unique_aircraft                   int (COUNT DISTINCT icao24)
 
-    
+    avg_duration_hours                float (AVG flight duration in hours)
 
+    flights_with_departure_airport   int (COUNT non-null departure_airport)
 
+    flights_with_arrival_airport     int (COUNT non-null arrival_airport)
+
+    departure_airport_coverage_pct   float (% non-null departure_airport)
+
+    arrival_airport_coverage_pct     float (% non-null arrival_airport)
+
+<h4>Average Flight Duration Trend (gold_avg_duration_trend)</h4>
+
+    year                              int
+
+    avg_duration_hours                float (AVG flight duration in hours)
+
+<h4>Airport Completeness (gold_airport_completeness)</h4>
+
+    year                              int
+
+    total_flights                     int
+
+    flights_with_departure_airport    int (COUNT non-null departure_airport)
+
+    flights_with_arrival_airport      int (COUNT non-null arrival_airport)
+
+    missing_departure_airport         int (total_flights - flights_with_departure_airport)
+
+    missing_arrival_airport           int (total_flights - flights_with_arrival_airport)
+
+    departure_airport_coverage_pct    float (% non-null departure_airport)
+
+    arrival_airport_coverage_pct      float (% non-null arrival_airport)
+
+<h4>Aircraft Trend (gold_aircraft_trend)</h4>
+
+    year                              int
+
+    unique_aircraft                   int (COUNT DISTINCT icao24)

@@ -1,0 +1,211 @@
+Queries that I used, just as reference
+
+##########################################
+
+USE FLIGHT_ANALYTICS;
+GRANT USAGE ON DATABASE FLIGHT_ANALYTICS TO ROLE ACCOUNTADMIN;
+GRANT USAGE ON SCHEMA FLIGHT_ANALYTICS.SILVER TO ROLE ACCOUNTADMIN;
+GRANT USAGE ON WAREHOUSE FLIGHT_WH TO ROLE ACCOUNTADMIN;
+
+
+GRANT CREATE TABLE ON SCHEMA FLIGHT_ANALYTICS.SILVER TO ROLE ACCOUNTADMIN;
+GRANT CREATE STAGE ON SCHEMA FLIGHT_ANALYTICS.SILVER TO ROLE ACCOUNTADMIN;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA FLIGHT_ANALYTICS.SILVER TO ROLE ACCOUNTADMIN;
+GRANT SELECT, INSERT, UPDATE, DELETE ON FUTURE TABLES IN SCHEMA FLIGHT_ANALYTICS.SILVER TO ROLE ACCOUNTADMIN;
+
+
+GRANT OWNERSHIP ON SCHEMA FLIGHT_ANALYTICS.SILVER TO ROLE ACCOUNTADMIN REVOKE CURRENT GRANTS;
+GRANT OWNERSHIP ON WAREHOUSE FLIGHT_WH TO ROLE ACCOUNTADMIN REVOKE CURRENT GRANTS;
+
+--SHOW GRANTS ON WAREHOUSE FLIGHT_WH;
+
+GRANT CREATE TABLE ON SCHEMA FLIGHT_ANALYTICS.BRONZE TO ROLE ACCOUNTADMIN;
+GRANT CREATE STAGE ON SCHEMA FLIGHT_ANALYTICS.BRONZE TO ROLE ACCOUNTADMIN;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA FLIGHT_ANALYTICS.BRONZE TO ROLE ACCOUNTADMIN;
+GRANT SELECT, INSERT, UPDATE, DELETE ON FUTURE TABLES IN SCHEMA FLIGHT_ANALYTICS.BRONZE TO ROLE ACCOUNTADMIN;
+GRANT USAGE ON SCHEMA FLIGHT_ANALYTICS.BRONZE TO ROLE ACCOUNTADMIN;
+GRANT OWNERSHIP ON SCHEMA FLIGHT_ANALYTICS.BRONZE TO ROLE ACCOUNTADMIN REVOKE CURRENT GRANTS;
+GRANT OWNERSHIP ON WAREHOUSE FLIGHT_WH TO ROLE ACCOUNTADMIN REVOKE CURRENT GRANTS;
+
+
+
+GRANT CREATE TABLE ON SCHEMA FLIGHT_ANALYTICS.GOLD TO ROLE ACCOUNTADMIN;
+GRANT CREATE STAGE ON SCHEMA FLIGHT_ANALYTICS.GOLD TO ROLE ACCOUNTADMIN;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA FLIGHT_ANALYTICS.GOLD TO ROLE ACCOUNTADMIN;
+GRANT SELECT, INSERT, UPDATE, DELETE ON FUTURE TABLES IN SCHEMA FLIGHT_ANALYTICS.GOLD TO ROLE ACCOUNTADMIN;
+GRANT USAGE ON SCHEMA FLIGHT_ANALYTICS.GOLD TO ROLE ACCOUNTADMIN;
+GRANT OWNERSHIP ON SCHEMA FLIGHT_ANALYTICS.GOLD TO ROLE ACCOUNTADMIN REVOKE CURRENT GRANTS;
+
+###############################################
+
+SELECT
+    *
+FROM @FLIGHT_ANALYTICS.SILVER.FLIGHTS_STAGE_FILES
+    (FILE_FORMAT => 'FLIGHT_ANALYTICS.SILVER.PARQUET_FORMAT')
+WHERE METADATA$FILENAME = 'part-00005-3e60a92e-6ab1-4530-9f19-f33454152ae7.c000.snappy.parquet'
+limit 1;
+
+
+SELECT
+    *
+FROM @FLIGHT_ANALYTICS.SILVER.FLIGHTS_STAGE_FILES
+    (FILE_FORMAT => 'FLIGHT_ANALYTICS.SILVER.PARQUET_FORMAT')
+    limit 10;
+
+    SELECT
+    *
+FROM @FLIGHT_ANALYTICS.SILVER.
+
+
+SELECT count(METADATA$FILENAME) FROM @FLIGHT_ANALYTICS.SILVER.FLIGHTS_STAGE_FILES;
+
+
+
+select * from FLIGHT_ANALYTICS.SILVER.flights
+where flight_id is not null
+limit 10;
+
+#########################################################
+
+--use silver;
+--select count(*) from flights;
+drop table if exists FLIGHT_ANALYTICS.BRONZE.loaded_files;
+drop table if exists FLIGHT_ANALYTICS.BRONZE.flights_stage;
+drop table if exists FLIGHT_ANALYTICS.BRONZE.flights;
+
+drop table if exists FLIGHT_ANALYTICS.SILVER.FLIGHTS;
+
+
+########################################################
+
+select count(*) from FLIGHT_ANALYTICS.SILVER.STG_FLIGHTS;
+select count(*) from FLIGHT_ANALYTICS.SILVER.FLIGHTS_CLEAN;
+
+SELECT flight_id, departure, COUNT(*)
+FROM FLIGHT_ANALYTICS.SILVER.FLIGHTS_CLEAN
+GROUP BY 1,2
+HAVING COUNT(*) > 1;
+
+
+drop table if exists FLIGHT_ANALYTICS.SILVER.FLIGHTS_CLEAN;
+
+
+drop view if exists FLIGHT_ANALYTICS.SILVER.STG_FLIGHTS;
+drop view if exists FLIGHT_ANALYTICS.BRONZE.STG_FLIGHTS;
+
+drop table if exists FLIGHT_ANALYTICS.SILVER.GOLD_YEARLY_FLIGHT_TRAFFIC;
+
+drop table if exists flight_analytics.gold.GOLD_YEARLY_FLIGHT_TRAFFIC;
+
+drop schema if exists flight_analytics.silver_silver;
+drop schema if exists flight_analytics.silver_bronze;
+
+######################################################
+
+
+SELECT
+    arrival_airport,
+    LENGTH(arrival_airport) AS length,
+    REGEXP_LIKE(arrival_airport, '^[A-Z]{4}$') AS is_valid_icao
+FROM
+    flight_analytics.silver.flights_clean
+WHERE
+    NOT REGEXP_LIKE(arrival_airport, '^[A-Z]{4}$')
+    OR arrival_airport IS NULL;
+
+
+    select count(*) from flight_analytics.silver.flights_clean;
+
+    select count(*) from flight_analytics.bronze.flights;
+
+
+    with etc as (
+    select icao24, departure, arrival, flight_id, count(*) from flight_analytics.bronze.flights a
+   group by 1, 2, 3, 4
+   having count(*) > 1
+   )
+   select count(*) from etc;
+
+   select count(*) from flight_analytics.bronze.flights
+   where departure is null or arrival is null;
+
+
+      select count(*) from flight_analytics.bronze.flights
+   where departure > arrival;
+
+select count(*) from flight_analytics.silver.stg_flights;
+
+select count(*) from flight_analytics.silver.flights_clean;
+
+select max(datediff(hour, departure, arrival)) from flight_analytics.silver.flights_clean;
+
+delete from flight_analytics.silver.flights_clean
+where datediff(hour, departure, arrival) > 48;
+
+show columns in table flight_analytics.silver.flights_clean;
+
+select count(*) from flight_analytics.silver.flights_clean
+where departure_airport is null
+or arrival_airport is null;
+
+#############################################################
+
+WITH base AS (
+
+    SELECT *
+    FROM flight_analytics.silver.stg_flights
+
+),
+
+filtered AS (
+
+    -- Enforce data quality: remove invalid keys
+    SELECT *
+    FROM base
+    WHERE flight_id IS NOT NULL
+      AND departure IS NOT NULL
+
+),
+
+deduplicated AS (
+
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY departure, flight_id, icao24, arrival
+            ORDER BY load_ts DESC
+        ) AS rn
+    FROM filtered
+
+)
+
+SELECT
+    -- identifiers
+    flight_id,
+
+    -- timestamps
+    departure,
+    arrival,
+
+    -- aircraft / operator
+    icao24,
+    icao_operator,
+
+    -- airports
+    departure_airport,
+    arrival_airport,
+
+    -- partitioning
+    year,
+    month,
+    day,
+
+    -- metadata
+    load_ts,
+    ingestion_date,
+    flight_date
+
+FROM deduplicated
+WHERE rn = 1
+

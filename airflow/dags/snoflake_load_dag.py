@@ -15,8 +15,8 @@ SNOWFLAKE_CONN_ID = "snowflake_default"
 S3_CONN_ID = "minio_s3"
 
 # ✅ DATE RANGE (controlled in DAG)
-DATE_START = datetime(2024, 1, 1)
-DATE_END   = datetime(2024, 1, 2)
+DATE_START = datetime(2022, 1, 1)
+DATE_END   = datetime(2025, 12, 31)
 
 default_args = {
     "owner": "airflow",
@@ -24,7 +24,7 @@ default_args = {
 
 with DAG(
     dag_id="minio_to_snowflake_full_load",
-    start_date=datetime(2024, 1, 1),
+    start_date=datetime(2022, 1, 1),
     schedule=None,
     catchup=False,
     default_args=default_args,

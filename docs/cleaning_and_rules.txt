@@ -30,14 +30,3 @@ adep_p
 ades_p
 
 uppercase - adep, ades
-
-Airports table
-ident must be not null
-
-name must be not null
-
-
-float
-latitude_deg
-longitude_deg
-elevation_ft
