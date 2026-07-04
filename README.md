@@ -67,21 +67,21 @@ Superset (BI Dashboards)
 
 ## 📦 Data Pipeline
 
-### 1. Ingestion Layer (Airflow)
+### 1. Ingestion Layer (Airflow) ✅
 
 - Downloads monthly **OPDI parquet** datasets
 - Generates ingestion URLs dynamically
 - Stores raw files in **MinIO**
 - Partitions data by: `year / month / day`
 
-### 2. Data Lake (Bronze Layer)
+### 2. Data Lake (Bronze Layer) ✅
 
 - Immutable raw flight data
 - Stored in **parquet** format
 - Partitioned for query efficiency
 - Path: `s3://flight-data/raw/flights/year=YYYY/month=MM/day=DD/`
 
-### 3. Processing Layer (Spark → Silver)
+### 3. Processing Layer (Spark → Silver) ✅
 
 - Schema normalization and type casting
 - Timestamp standardization (`first_seen`, `last_seen`)
@@ -91,7 +91,7 @@ Superset (BI Dashboards)
   - Flight duration (`seconds / minutes / hours`)
 - Output stored as structured **parquet**
 
-### 4. Analytics Layer (Snowflake → Gold via dbt)
+### 4. Analytics Layer (Snowflake → Gold via dbt) ✅
 
 **Dimensional model:**
 
@@ -112,7 +112,7 @@ Superset (BI Dashboards)
 
 ---
 
-## 📊 Analytics & Dashboards (Superset)
+## 📊 Analytics & Dashboards (Superset) ✅
 
 
 | **Dataset**                  | **Visualization** | **Insight**                           |
